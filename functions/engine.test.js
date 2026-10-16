@@ -1,0 +1,4 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const {initial,press,advance}=require('./engine');
+test('first press fails and later press rejected',()=>{const s=initial(0);const p=press(s,'u','nick',1);assert.equal(p.accepted,true);assert.equal(press(p.state,'v','other',2).accepted,false);assert.equal(advance(p.state,10001).attempt,2);});
+test('success retains max record and resets attempt',()=>{let s=initial(0,8);s=advance(s,60000);assert.equal(s.phase,'succeeded');assert.equal(s.bestRecord,8);s=advance(s,90000);assert.equal(s.attempt,1);assert.equal(s.round,2);});
+test('new best stored on success',()=>{let s={...initial(0),attempt:10};s=advance(s,60000);assert.equal(s.bestRecord,10);});
