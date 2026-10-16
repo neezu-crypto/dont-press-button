@@ -292,6 +292,13 @@ body[data-phase="succeeded"] .timer-caption { color: var(--mint); }
   .footer { width: calc(100% - 28px); font-size: 9px; line-height: 1.6; }
 }
 
+@media (max-width: 360px) {
+  .brand { gap: 6px; font-size: 10px; }
+  .topbar-actions { gap: 6px; }
+  .connection-state { gap: 4px; }
+  .text-button { padding: 0 8px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }

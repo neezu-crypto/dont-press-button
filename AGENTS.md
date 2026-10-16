@@ -1,4 +1,4 @@
-# 절대 누르지 마세요 — Codex 지침
+# 한국인은 절대 못 깨는 게임 — Codex 지침
 - 상위 자매 프로젝트 `streamer-life-game/AGENTS.md`의 공통 규칙을 우선 적용한다.
 - Firebase 프로젝트는 `soop-stock-market`, RTDB 경로는 `dontPressButton/`, 함수 codebase는 `dontpressbutton`.
 - 다른 게임의 RTDB 데이터와 Cloud Functions를 수정하거나 삭제하지 않는다.
