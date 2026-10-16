@@ -1,42 +1,33 @@
 # Codex 인수인계 — 《절대 누르지 마세요》
-## 확정 사항
-- 저장소: neezu-crypto/dont-press-button, 공개 GitHub Pages 예정.
-- 기존 Firebase 프로젝트 `soop-stock-market`의 RTDB `soop-stock-market-default-rtdb` 공유. 별도 Firebase 프로젝트/DB 생성 금지.
-- 새 게임 전용 네임스페이스 `dontPressButton/`, Functions codebase `dontpressbutton`.
-- 모든 스트리머와 시청자가 하나의 공용 글로벌 게임에 참가한다. 방/로그인 UI 없음.
-- Firebase 익명 인증을 이용해 서버에서 참가자를 식별하고, 화면에는 닉네임만 노출한다.
-- 닉네임 2~12자, 현재 접속 중인 참가자 간 중복 불허. 진행 중 입장 허용.
-- 플레이 중 누구나 제한 없이 빨간 버튼을 누를 수 있다. 최초 승인된 한 번의 누름으로 전원 실패, 누른 사람 닉네임 표시, 실패 화면 10초 후 자동으로 다음 도전.
-- 60초 동안 아무도 누르지 않으면 전원 성공. 성공 화면 30초 후 새 라운드 도전 횟수 1로 재시작.
-- 서버가 상태/시각을 권위 있게 판정하며 여러 사람의 동시 누름을 원자적으로 처리한다. 브라우저는 RTDB 실시간 구독으로 렌더링.
-- 도전 횟수 및 영구 최고 기록 표시. 현재 초안은 최고 기록을 '성공까지 가장 많은 시도 횟수'로 구현했음. 제품 의도상 최고 기록의 의미가 모호하므로 실서비스 확정 전에 확인할 것.
-- 방해자 보상 없음.
 
-## 현재 구현과 한계
-- `functions/engine.js`: 순수 상태 전이 엔진; `functions/engine.test.js`: 3개 기초 테스트.
-- `functions/index.js`: `dpbJoin`, `dpbPress`, `dpbTick` 초안. **프로덕션 사용 금지**.
-- `dpbTick`은 매분 실행되는 복구용 작업일 뿐 60초/10초/30초 정확한 서버 판정을 충족하지 않는다.
-- `dpbPress`의 트랜잭션 callback 안에서 변경한 `accepted` 변수를 그대로 반환하는 방식은 트랜잭션 재시도 시 잘못된 응답을 낼 수 있다. committed/snapshot 결과를 검증해야 한다.
-- 버튼 호출 시 마감시각을 넘은 상태를 먼저 정리하지 않으면 지연된 성공 판정과 경합이 발생할 수 있다.
-- 닉네임 중복 방지, 접속 상태/퇴장/재접속, 차단/운영, 브라우저 UI, Firebase SDK 설정, 실시간 클라이언트 구독, RTDB 규칙 및 관리자 연동 미구현.
-- Firebase 인증 공급자, Functions 배포, GitHub Pages 공개, RTDB 규칙 반영 **모두 미완료**.
+## 확정된 제품 동작
 
-## 우선 개발 순서
-1. 실제 형제 저장소의 `AGENTS.md`, `firebase.json`, 함수 구조, RTDB 규칙 원본과 관리자 코드 확인. 변경 전 영향 범위 기록.
-2. 서버 시계 기반 타이머 설계 및 구현. Cloud Tasks 등 정확한 예약 트리거와 지연/중복 실행 멱등성, 콜드 스타트 복구를 고려. 스케줄러는 보조 복구 용도로만 사용.
-3. 모든 상태 전이를 원자적으로 처리하고 경쟁 요청/지연 요청/시계 경계 테스트 보강. 성공/실패 시 역대 기록 갱신 원자성 보장.
-4. Firebase 익명 인증과 닉네임 선점/중복 방지, presence heartbeat/연결 종료, 닉네임 악용 방어 및 운영 차단 설계.
-5. PC/모바일 반응형 단일 페이지 게임 UI: 거대한 빨간 버튼, 서버 기준 남은 시간, 도전 횟수, 접속자, 방해자 표시, 성공/실패 전환, 재시작 대기. 접근성 및 모바일 터치 테스트.
-6. 브라우저 직접 쓰기 금지. RTDB 읽기 최소 권한 및 서버 Admin SDK 쓰기. 공유 보안 규칙 수정이 필요하면 StreamBet-Market 정본 포함 6개 사본 모두 동기화, dry-run 필수.
-7. `admin-center/functions/index.js`의 `GAME_CATALOG` 등록. `PRESENCE_APPS`는 실제 presence 구현 시에만 추가. 기존 전역 차단과 게임별 차단 동작 검증.
-8. 로컬 테스트, Firebase Emulator 테스트, 브라우저 2개 이상으로 동시성 테스트. 검증 성공 시 한글 커밋/push 및 안전한 선택 배포.
+- 저장소: `neezu-crypto/dont-press-button`; GitHub Pages 공개 사이트를 사용한다.
+- Firebase 프로젝트 `soop-stock-market`과 RTDB `soop-stock-market-default-rtdb`를 공유한다. 별도 프로젝트나 DB는 만들지 않는다.
+- 전 참가자가 `dontPressButton/` 아래의 단일 글로벌 게임에 참여한다. 방 선택이나 일반 로그인 UI는 없다.
+- Firebase 익명 인증 UID로 참가자를 관리한다. 브라우저 세션은 25초마다 서버 heartbeat를 보내고, 참가자·현재 연결 닉네임·사용자별 접속 기록은 Cloud Functions만 쓴다.
+- 닉네임은 2~12자다. 정규화된 닉네임의 해시를 서버가 선점해 현재 접속 중인 참가자 사이의 중복을 막는다. 정상 퇴장하면 바로 해제하고, 연결이 끊긴 사용자의 이름은 90초 후 정리된다.
+- 진행 중에도 입장할 수 있고 참가자는 버튼을 누를 수 있다. 최초의 서버 승인 누름이 전원 실패를 결정하고 누적 실패 도전 횟수를 1 올린다. 누른 사람의 닉네임을 10초 보여준 뒤 다음 도전을 시작한다.
+- 60초 동안 아무도 누르지 않으면 전원 성공이다. 성공 횟수는 서버 내부에서만 집계하고 화면에는 표시하지 않는다. 화면에 성공 횟수를 유추할 수 있는 라운드 번호도 표시하지 않는다. 성공 화면은 30초 후 새 도전을 시작하며 누적 실패 횟수는 유지된다.
+- Cloud Tasks가 상태 버전이 포함된 서버 전이를 예약한다. 늦게 도착한 태스크·버튼 요청은 RTDB 트랜잭션에서 현재 버전과 서버 시간을 다시 검증한다. 1분 복구 스케줄러가 누락된 작업과 오래된 접속 기록을 정리한다.
+- 브라우저는 익명 인증 후 공개 게임 상태와 공개 닉네임만 RTDB `onValue`로 구독한다. 참가자 UID, 닉네임 인덱스와 버튼 재시도 영수증은 클라이언트에서 읽을 수 없다.
+- `dontPressButton/internal/state/failedChallenges`는 전체 게임에서 실패할 때마다 누적되고, 서버가 공개 상태 `dontPressButton/state/failedChallenges`로 복사해 화면에 표시한다. `successCount`는 전체 게임 성공 때마다 서버 내부에서 집계되며 공개 상태와 화면에는 노출하지 않는다.
 
-## 안전 배포 절차
-- `firebase functions:list --project soop-stock-market`에서 함수명 충돌 확인.
-- Cloud Functions는 `firebase deploy --only functions:dontpressbutton:<functionName> --project soop-stock-market`처럼 변경 함수만 지정. 전체 Functions 배포 금지.
-- 공유 DB 규칙 수정 시 정본/여섯 복사본을 비교하고 `firebase deploy --only database --project soop-stock-market --dry-run`을 먼저 실행.
-- 배포 자격 증명, Firebase SDK 설정, 익명 인증 상태, GitHub Pages URL을 실제 확인하고 미확인 사항을 완료로 보고하지 않는다.
-- 배포가 위험하거나 권한이 없으면 안전한 변경만 커밋하고 이유를 보고한다.
+## 구현 위치
 
-## Codex 시작 지시
-이 파일과 루트 AGENTS.md를 읽은 뒤, 자매 프로젝트 `streamer-life-game/AGENTS.md` 공통 지침을 확인하라. 이 저장소의 초안을 안전하게 실서비스 가능한 완성 게임으로 구현하라. 테스트를 먼저 추가하고, 공용 Firebase의 다른 자매 프로젝트에 영향을 주지 말라. 변경된 함수만 배포하라. 검증 완료 시 한글 커밋 및 push, 배포 URL과 남은 문제를 보고하라.
+- `functions/engine.js`: 순수 상태 전이, 서버 마감시각 기반 catch-up과 지연된 기간의 빠른 복구.
+- `functions/engine.test.js`: 실패/성공 경계, 동시 누름 승자, stale 요청, 라운드 재설정, catch-up 단위 테스트.
+- `functions/index.js`: `dpbJoin`, `dpbHeartbeat`, `dpbLeave`, `dpbPress`, `dpbTransition`, `dpbTick`.
+- `public/`: 접근성·모바일 레이아웃을 갖춘 단일 페이지. `main` 푸시 시 GitHub Actions가 `public/`만 Pages에 게시한다.
+- `database.rules.json`: 공유 규칙은 `StreamBet-Market` 원본과 여섯 사본을 바이트 단위로 함께 유지한다. 게임은 `state`와 `publicParticipants`만 인증된 사용자가 읽고, 그 밖의 경로는 서버 전용이다.
+- `admin-center/functions/index.js`: 게임 카탈로그와 서버가 기록하는 `presence/dontPressButton/{uid}`를 접속자 분석에 등록한다. 전역 정지는 모든 게임에서, 게임별 정지는 `bannedAccounts/{uid}/games/dontPressButton`에서 서버가 차단한다.
+
+## 검증과 배포 전 확인
+
+1. `node --test functions/engine.test.js`, `node -c` 구문 검사, 브라우저 id·함수명 교차 확인을 수행한다.
+2. RTDB Emulator에서 미인증 읽기 차단, 익명 인증 상태 읽기 허용, 클라이언트 쓰기 차단을 확인한다. Functions Emulator와 브라우저 두 개로 동시 누름·재접속도 확인한다.
+3. 실제 공유 규칙 사본 여섯 개가 바이트 단위로 같은지 확인하고 `firebase deploy --only database --project soop-stock-market --dry-run`을 실행한다.
+4. 새 함수명은 배포 전에 `firebase functions:list --project soop-stock-market`으로 중복을 다시 확인한다. Functions 전체 배포 금지. 정확한 함수 배포 명령은 README를 따른다.
+5. Firebase 프로젝트의 익명 인증은 활성화되어 있고 Cloud Tasks API도 켜져 있다. Cloud Tasks 실행 서비스 계정의 enqueue/invoke 권한과 최초 태스크 생성은 배포 후 확인한다.
+6. GitHub Pages API에서 아직 사이트가 설정되지 않은 상태다. 워크플로를 푸시한 뒤 Pages를 `workflow` 빌드로 활성화하고 GitHub Actions 실행 및 공개 URL을 확인한다.
+7. 실패 도전 누적 및 성공 횟수 비표시 기준이 확정됐다. 검증을 통과하면 공통 지침에 따라 변경 파일만 커밋·푸시하고 정확한 서버 함수와 공유 RTDB 규칙을 배포한다. Pages 워크플로를 활성화한 뒤 공개 사이트와 Actions 성공을 확인한다.

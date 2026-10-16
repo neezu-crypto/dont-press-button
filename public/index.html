@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10131d">
+  <meta name="description" content="전 세계 참가자가 함께 버티는 실시간 버튼 게임. 아무도 누르지 않으면 모두 성공합니다.">
+  <title>절대 누르지 마세요</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body data-phase="loading">
+  <div class="page-glow" aria-hidden="true"></div>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="절대 누르지 마세요 홈">
+      <span class="brand-mark" aria-hidden="true">!</span>
+      <span>절대 누르지 마세요</span>
+    </a>
+    <div class="topbar-actions">
+      <span id="connectionState" class="connection-state" role="status">
+        <span class="connection-dot" aria-hidden="true"></span>
+        <span id="connectionLabel">연결 중</span>
+      </span>
+      <button id="nicknameButton" class="text-button" type="button">닉네임 설정</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="game-card" aria-labelledby="phaseTitle">
+      <div class="eyebrow-row">
+        <span class="eyebrow">GLOBAL GAME</span>
+      </div>
+
+      <div class="headline-block">
+        <p class="overline">모두가 같은 게임을 하고 있습니다</p>
+        <h1 id="phaseTitle">게임에 접속하는 중</h1>
+        <p id="phaseMessage" class="phase-message" aria-live="polite">서버 시계와 실시간 상태를 확인하고 있습니다.</p>
+      </div>
+
+      <div class="timer-wrap" aria-label="남은 시간">
+        <div id="timerRing" class="timer-ring">
+          <div class="timer-center">
+            <span id="timerCaption" class="timer-caption">남은 시간</span>
+            <strong id="countdown" class="countdown">--:--</strong>
+          </div>
+        </div>
+      </div>
+
+      <button id="pressButton" class="press-button" type="button" disabled>
+        <span class="button-kicker">모두를 실패하게 합니다</span>
+        <span class="button-label">절대 누르지 마세요</span>
+        <span class="button-footnote">한 번만 눌러도 모두의 도전이 끝납니다</span>
+      </button>
+      <p id="actionMessage" class="action-message" role="status">참여하려면 닉네임을 먼저 설정하세요.</p>
+    </section>
+
+    <section class="stats-grid" aria-label="현재 기록">
+      <article class="stat-card">
+        <span class="stat-label">누적 실패 도전</span>
+        <strong id="failedChallenges" class="stat-value">0회</strong>
+        <span class="stat-caption">버튼을 눌러 끝난 도전</span>
+      </article>
+      <article class="stat-card people-card">
+        <span class="stat-label">함께 버티는 사람</span>
+        <strong id="participantCount" class="stat-value">0명</strong>
+        <span class="stat-caption">최근 접속한 참가자</span>
+      </article>
+    </section>
+
+    <section class="people-card-wide" aria-labelledby="peopleTitle">
+      <div class="section-heading">
+        <div>
+          <p class="overline">STAY TOGETHER</p>
+          <h2 id="peopleTitle">지금 함께 있는 사람</h2>
+        </div>
+        <span id="participantSummary" class="live-count"><span class="live-pulse" aria-hidden="true"></span>접속자 0명</span>
+      </div>
+      <div id="participantList" class="participant-list" aria-live="off">
+        <span class="empty-people">첫 참가자를 기다리는 중</span>
+      </div>
+    </section>
+
+    <p class="rules-note">버튼을 누르지 않고 60초를 버티면 모두 성공합니다. 버튼을 누른 사람은 도전이 끝날 때 공개됩니다.</p>
+  </main>
+
+  <dialog id="nicknameDialog" class="nickname-dialog" aria-labelledby="dialogTitle">
+    <form id="nicknameForm" method="dialog" class="nickname-form">
+      <button id="closeDialogButton" class="dialog-close" type="button" aria-label="닫기">×</button>
+      <span class="dialog-mark" aria-hidden="true">!</span>
+      <p class="overline">JOIN THE GLOBAL GAME</p>
+      <h2 id="dialogTitle">어떤 이름으로 버틸까요?</h2>
+      <p class="dialog-copy">현재 접속 중인 참가자와 겹치지 않는 닉네임을 사용해 주세요. 방송 중에도 함께할 수 있습니다.</p>
+      <label class="input-label" for="nicknameInput">닉네임</label>
+      <input id="nicknameInput" name="nickname" type="text" maxlength="24" autocomplete="nickname" placeholder="예: 버튼참기왕" required>
+      <p id="nicknameError" class="form-error" role="alert"></p>
+      <button id="joinButton" class="join-button" type="submit">게임에 입장</button>
+      <p class="privacy-note">로그인 없이 익명으로 참가합니다. 브라우저에 닉네임이 저장됩니다.</p>
+    </form>
+  </dialog>
+
+  <footer class="footer">
+    <span>실시간 글로벌 도전 · 모든 참가자가 같은 라운드에 참여합니다</span>
+    <a href="https://github.com/neezu-crypto/dont-press-button" target="_blank" rel="noreferrer">프로젝트 정보</a>
+  </footer>
+</body>
+</html>
