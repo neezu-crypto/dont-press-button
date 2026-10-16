@@ -5,6 +5,7 @@ const DURATIONS = Object.freeze({
   failed: 10_000,
   succeeded: 30_000,
 });
+const MIN_PARTICIPANTS = 6;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -71,13 +72,27 @@ function addSuccessesByDate(value, firstAt, interval, count) {
 
 function initial(now = Date.now(), failedChallenges = 0, successCount = 0, version = 1, successCountsByDate = {}) {
   return {
-    phase: 'playing',
-    phaseEndsAt: now + DURATIONS.playing,
+    phase: 'waiting',
+    phaseEndsAt: null,
+    startedAt: null,
     failedChallenges,
     successCount,
     successCountsByDate: normalizeSuccessCountsByDate(successCountsByDate) || {},
     lastPresser: null,
     version,
+  };
+}
+
+function startIfReady(state, participantCount, now = Date.now()) {
+  if (!state || state.phase !== 'waiting'
+    || !Number.isSafeInteger(participantCount) || participantCount < MIN_PARTICIPANTS) return state;
+  return {
+    ...state,
+    phase: 'playing',
+    phaseEndsAt: now + DURATIONS.playing,
+    startedAt: now,
+    lastPresser: null,
+    version: state.version + 1,
   };
 }
 
@@ -100,7 +115,7 @@ function press(state, uid, nickname, now = Date.now(), expectedVersion = state &
 }
 
 function advance(state, now = Date.now()) {
-  if (!state || now < state.phaseEndsAt) return state;
+  if (!state || state.phase === 'waiting' || now < state.phaseEndsAt) return state;
 
   if (state.phase === 'playing') {
     return {
@@ -140,7 +155,7 @@ function advance(state, now = Date.now()) {
 function catchUp(state, now = Date.now(), maxTransitions = 10_000) {
   let next = state;
   let iterations = 0;
-  while (next && now >= next.phaseEndsAt) {
+  while (next && Number.isFinite(next.phaseEndsAt) && now >= next.phaseEndsAt) {
     if (iterations >= maxTransitions) throw new Error('Too many overdue game transitions');
     if (next.phase === 'succeeded') {
       const completedRounds = Math.floor((now - next.phaseEndsAt) / (DURATIONS.playing + DURATIONS.succeeded));
@@ -178,7 +193,9 @@ function publicState(state) {
 
 module.exports = {
   DURATIONS,
+  MIN_PARTICIPANTS,
   initial,
+  startIfReady,
   press,
   advance,
   catchUp,

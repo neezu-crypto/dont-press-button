@@ -229,7 +229,6 @@ h2 { margin: 0; font-size: 17px; letter-spacing: -.035em; }
 }
 .nickname-dialog::backdrop { background: rgba(5, 7, 12, .76); backdrop-filter: blur(7px); }
 .nickname-form { position: relative; padding: 31px 31px 25px; }
-.dialog-close { position: absolute; top: 17px; right: 18px; width: 32px; height: 32px; border: 0; border-radius: 50%; background: rgba(255,255,255,.06); color: #b7bece; font-size: 22px; cursor: pointer; }
 .dialog-mark { width: 39px; height: 39px; margin-bottom: 24px; border-radius: 12px; font-size: 23px; }
 .nickname-form h2 { font-size: 22px; }
 .dialog-copy { margin: 11px 0 23px; color: #a6adbf; font-size: 12px; line-height: 1.8; }
@@ -257,6 +256,7 @@ h2 { margin: 0; font-size: 17px; letter-spacing: -.035em; }
 
 body[data-phase="failed"] .timer-ring { background: conic-gradient(var(--red) calc(var(--progress, 1) * 1turn), rgba(255,255,255,.08) 0); box-shadow: 0 0 40px rgba(255,79,85,.12); }
 body[data-phase="succeeded"] .timer-ring { background: conic-gradient(var(--mint) calc(var(--progress, 1) * 1turn), rgba(255,255,255,.08) 0); }
+body[data-phase="waiting"] .press-button { filter: grayscale(.55); opacity: .55; cursor: not-allowed; }
 body[data-phase="failed"] .press-button, body[data-phase="succeeded"] .press-button { visibility: hidden; pointer-events: none; }
 body[data-phase="failed"] .timer-caption { color: #ff8588; }
 body[data-phase="succeeded"] .timer-caption { color: var(--mint); }

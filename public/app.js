@@ -14,9 +14,9 @@ const firebaseConfig = {
 };
 
 const REGION = 'asia-northeast3';
-const NICKNAME_STORAGE_KEY = 'dontPressButton.nickname';
-const SESSION_STORAGE_KEY = 'dontPressButton.sessionId';
+const MIN_PARTICIPANTS = 6;
 const PRESENCE_HEARTBEAT_MS = 25_000;
+const PRESENCE_TTL_MS = 90_000;
 const STATE_PATH = 'dontPressButton/state';
 const PEOPLE_PATH = 'dontPressButton/publicParticipants';
 const GAME_DURATIONS = { playing: 60_000, failed: 10_000, succeeded: 30_000 };
@@ -59,12 +59,12 @@ const elements = {
   nicknameInput: document.querySelector('#nicknameInput'),
   nicknameError: document.querySelector('#nicknameError'),
   joinButton: document.querySelector('#joinButton'),
-  closeDialogButton: document.querySelector('#closeDialogButton'),
 };
 
 let user = null;
 let gameState = null;
 let participantData = {};
+let activeParticipantCount = 0;
 let isJoined = false;
 let isConnected = false;
 let isPressPending = false;
@@ -74,25 +74,15 @@ let subscriptionsStarted = false;
 let authSignInStarted = false;
 let lastAnnouncedVersion = null;
 
-function safeStorageGet(storage, key) {
-  try { return storage.getItem(key); } catch { return null; }
-}
-
-function safeStorageSet(storage, key, value) {
-  try { storage.setItem(key, value); } catch { /* Private browsing may block storage. */ }
-}
-
-function getSessionId() {
-  const saved = safeStorageGet(sessionStorage, SESSION_STORAGE_KEY);
-  if (saved && /^[A-Za-z0-9_-]{20,64}$/.test(saved)) return saved;
-  const next = globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function'
+function createSessionId() {
+  return globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function'
     ? globalThis.crypto.randomUUID()
     : Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('');
-  safeStorageSet(sessionStorage, SESSION_STORAGE_KEY, next);
-  return next;
 }
 
-const sessionId = getSessionId();
+try { localStorage.removeItem('dontPressButton.nickname'); } catch { /* Storage can be unavailable in private browsing. */ }
+try { sessionStorage.removeItem('dontPressButton.sessionId'); } catch { /* Storage can be unavailable in private browsing. */ }
+const sessionId = createSessionId();
 
 function setActionMessage(message, isError = false) {
   elements.actionMessage.textContent = message;
@@ -107,10 +97,13 @@ function setConnected(connected) {
 }
 
 function renderParticipants() {
+  const now = Date.now() + serverTimeOffset;
   const people = Object.values(participantData || {})
-    .filter((person) => person && typeof person.nickname === 'string')
+    .filter((person) => person && typeof person.nickname === 'string'
+      && Number(person.lastSeenAt) > now - PRESENCE_TTL_MS)
     .sort((a, b) => a.nickname.localeCompare(b.nickname, 'ko'));
   const count = people.length;
+  activeParticipantCount = count;
   elements.participantCount.textContent = `${count.toLocaleString('ko-KR')}명`;
   elements.participantSummary.replaceChildren();
   const dot = document.createElement('span');
@@ -124,7 +117,7 @@ function renderParticipants() {
   if (!count) {
     const empty = document.createElement('span');
     empty.className = 'empty-people';
-    empty.textContent = '첫 참가자를 기다리는 중';
+    empty.textContent = '닉네임을 정하고 첫 참가자로 입장해 주세요';
     elements.participantList.append(empty);
     return;
   }
@@ -160,7 +153,23 @@ function renderGame() {
     return;
   }
 
-  const phase = ['playing', 'failed', 'succeeded'].includes(gameState.phase) ? gameState.phase : 'loading';
+  const phase = ['waiting', 'playing', 'failed', 'succeeded'].includes(gameState.phase) ? gameState.phase : 'loading';
+  if (phase === 'waiting') {
+    const moreParticipants = Math.max(0, MIN_PARTICIPANTS - activeParticipantCount);
+    document.body.dataset.phase = phase;
+    elements.failedChallenges.textContent = `${(gameState.failedChallenges || 0).toLocaleString('ko-KR')}회`;
+    elements.countdown.textContent = '--:--';
+    elements.timerRing.style.setProperty('--progress', '0');
+    elements.timerCaption.textContent = '시작 대기 중';
+    elements.phaseTitle.textContent = `${MIN_PARTICIPANTS}명이 모이면 시작합니다`;
+    elements.phaseMessage.textContent = `현재 ${activeParticipantCount}명 접속 · ${moreParticipants}명 더 입장하면 첫 도전이 시작됩니다.`;
+    setActionMessage(isJoined ? '함께할 참가자를 기다리고 있습니다.' : '닉네임을 정하고 입장하면 참가자 수에 포함됩니다.');
+    elements.pressButton.disabled = true;
+    elements.pressButton.setAttribute('aria-label', '참가자 6명이 모일 때까지 시작을 기다리는 중');
+    if (gameState.version !== lastAnnouncedVersion) lastAnnouncedVersion = gameState.version;
+    return;
+  }
+
   const now = Date.now() + serverTimeOffset;
   const remaining = Math.max(0, Number(gameState.phaseEndsAt) - now);
   const duration = GAME_DURATIONS[phase] || GAME_DURATIONS.playing;
@@ -207,6 +216,7 @@ function startSubscriptions() {
   onValue(ref(database, '.info/serverTimeOffset'), (snapshot) => {
     serverTimeOffset = Number(snapshot.val()) || 0;
     renderGame();
+    renderParticipants();
   });
   onValue(ref(database, STATE_PATH), (snapshot) => {
     gameState = snapshot.val();
@@ -235,7 +245,6 @@ async function joinWithNickname(nickname) {
   try {
     const result = await joinParticipant({ nickname, sessionId });
     const savedNickname = result.data.nickname;
-    safeStorageSet(localStorage, NICKNAME_STORAGE_KEY, savedNickname);
     isJoined = true;
     startHeartbeat();
     elements.nicknameDialog.close();
@@ -261,7 +270,7 @@ async function sendPresenceHeartbeat() {
       isJoined = false;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = null;
-      elements.nicknameInput.value = safeStorageGet(localStorage, NICKNAME_STORAGE_KEY) || '';
+      elements.nicknameInput.value = '';
       if (!elements.nicknameDialog.open) elements.nicknameDialog.showModal();
       setActionMessage('참가 세션이 만료되어 다시 입장해야 합니다.', true);
       renderGame();
@@ -289,7 +298,7 @@ async function leaveCurrentSession() {
 
 async function changeNickname() {
   if (isJoined) await leaveCurrentSession();
-  elements.nicknameInput.value = safeStorageGet(localStorage, NICKNAME_STORAGE_KEY) || '';
+  elements.nicknameInput.value = '';
   elements.nicknameError.textContent = '';
   if (!elements.nicknameDialog.open) elements.nicknameDialog.showModal();
   elements.nicknameInput.focus();
@@ -327,9 +336,9 @@ elements.pressButton.addEventListener('click', async () => {
 });
 
 elements.nicknameButton.addEventListener('click', () => { changeNickname(); });
-elements.closeDialogButton.addEventListener('click', () => elements.nicknameDialog.close());
+elements.nicknameDialog.addEventListener('cancel', (event) => event.preventDefault());
 elements.nicknameDialog.addEventListener('close', () => {
-  if (!isJoined) setActionMessage('참여하려면 닉네임을 설정하세요.');
+  if (!isJoined) elements.nicknameDialog.showModal();
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') sendPresenceHeartbeat();
@@ -337,6 +346,7 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('pagehide', () => { leaveCurrentSession(); });
 window.addEventListener('beforeunload', () => { leaveCurrentSession(); });
 setInterval(renderGame, 200);
+setInterval(renderParticipants, 1_000);
 
 onAuthStateChanged(auth, async (currentUser) => {
   if (!currentUser) {
@@ -353,16 +363,7 @@ onAuthStateChanged(auth, async (currentUser) => {
   if (user && user.uid === currentUser.uid) return;
   user = currentUser;
   startSubscriptions();
-  const savedNickname = safeStorageGet(localStorage, NICKNAME_STORAGE_KEY);
-  if (savedNickname) {
-    try { await joinWithNickname(savedNickname); } catch (error) {
-      elements.nicknameInput.value = savedNickname;
-      elements.nicknameError.textContent = error.message || '입장할 수 없습니다. 닉네임을 확인해 주세요.';
-      if (!elements.nicknameDialog.open) elements.nicknameDialog.showModal();
-      console.error('Saved participant could not rejoin', error);
-    }
-  } else {
-    elements.nicknameDialog.showModal();
-    elements.nicknameInput.focus();
-  }
+  elements.nicknameInput.value = '';
+  elements.nicknameDialog.showModal();
+  elements.nicknameInput.focus();
 });

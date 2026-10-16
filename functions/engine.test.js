@@ -4,7 +4,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   DURATIONS,
+  MIN_PARTICIPANTS,
   initial,
+  startIfReady,
   press,
   advance,
   catchUp,
@@ -13,8 +15,35 @@ const {
   migrateSuccessCountsByDate,
 } = require('./engine');
 
+function playing(now = 0, failedChallenges = 0, successCount = 0, version = 1, successCountsByDate = {}) {
+  return startIfReady(
+    initial(now, failedChallenges, successCount, version, successCountsByDate),
+    MIN_PARTICIPANTS,
+    now,
+  );
+}
+
+test('the game waits for six joined participants before starting', () => {
+  const waiting = initial(10, 4, 2, 7, { '2026-10-16': 2 });
+  const notReady = startIfReady(waiting, MIN_PARTICIPANTS - 1, 100);
+
+  assert.equal(waiting.phase, 'waiting');
+  assert.equal(waiting.phaseEndsAt, null);
+  assert.equal(press(waiting, 'a', '대기', 20, waiting.version).accepted, false);
+  assert.strictEqual(notReady, waiting);
+
+  const started = startIfReady(waiting, MIN_PARTICIPANTS, 100);
+  assert.equal(started.phase, 'playing');
+  assert.equal(started.startedAt, 100);
+  assert.equal(started.phaseEndsAt, 100 + DURATIONS.playing);
+  assert.equal(started.failedChallenges, 4);
+  assert.equal(started.successCount, 2);
+  assert.deepEqual(started.successCountsByDate, { '2026-10-16': 2 });
+  assert.strictEqual(startIfReady(started, 0, 200), started, 'the running global game does not stop when players leave');
+});
+
 test('the first approved press records one failed challenge and only the nickname', () => {
-  const start = initial(1_000);
+  const start = playing(1_000);
   const result = press(start, 'private-uid', '시청자', 2_000, start.version);
 
   assert.equal(result.accepted, true);
@@ -29,7 +58,7 @@ test('the first approved press records one failed challenge and only the nicknam
 });
 
 test('simultaneous presses count one failure and stale retries cannot affect a later attempt', () => {
-  const start = initial(0);
+  const start = playing(0);
   const winner = press(start, 'a', '먼저', 1, start.version);
   const loser = press(winner.state, 'b', '다음', 2, start.version);
   const nextAttempt = advance(winner.state, winner.state.phaseEndsAt);
@@ -43,7 +72,7 @@ test('simultaneous presses count one failure and stale retries cannot affect a l
 });
 
 test('a press at or after the deadline is rejected and success is only aggregated', () => {
-  const start = initial(0);
+  const start = playing(0);
   assert.equal(press(start, 'a', '늦음', DURATIONS.playing, start.version).accepted, false);
   const success = advance(start, DURATIONS.playing);
   assert.equal(success.phase, 'succeeded');
@@ -53,14 +82,14 @@ test('a press at or after the deadline is rejected and success is only aggregate
 
 test('success dates use the KST calendar day, including midnight', () => {
   const successAt = Date.UTC(2026, 0, 1, 15);
-  const success = advance(initial(successAt - DURATIONS.playing), successAt);
+  const success = advance(playing(successAt - DURATIONS.playing), successAt);
 
   assert.equal(successDateKey(successAt), '2026-01-02');
   assert.deepEqual(success.successCountsByDate, { '2026-01-02': 1 });
 });
 
 test('catch-up aggregates each successful round under its KST date across midnight', () => {
-  const start = initial(Date.UTC(2026, 0, 1, 14));
+  const start = playing(Date.UTC(2026, 0, 1, 14));
   const recovered = catchUp(start, Date.UTC(2026, 0, 2, 0, 4));
 
   assert.equal(recovered.successCount, 403);
@@ -80,7 +109,8 @@ test('legacy success totals are backfilled to the migration date', () => {
 });
 
 test('failed challenges accumulate while the game continues', () => {
-  const firstFailure = press(initial(0), 'a', '실패', 10, 1).state;
+  const start = playing(0);
+  const firstFailure = press(start, 'a', '실패', 10, start.version).state;
   const next = advance(firstFailure, firstFailure.phaseEndsAt);
   const secondFailure = press(next, 'b', '실패2', firstFailure.phaseEndsAt + 1, next.version).state;
 
@@ -94,7 +124,7 @@ test('failed challenges accumulate while the game continues', () => {
 });
 
 test('success counts remain internal state and do not reset failed challenge totals', () => {
-  const start = { ...initial(0, 7, 3), failedChallenges: 7, successCount: 3 };
+  const start = { ...playing(0, 7, 3), failedChallenges: 7, successCount: 3 };
   const success = advance(start, start.phaseEndsAt);
   const next = advance(success, success.phaseEndsAt);
 
@@ -113,7 +143,8 @@ test('success counts remain internal state and do not reset failed challenge tot
 });
 
 test('catch-up accounts for every overdue success and keeps failure totals', () => {
-  const failed = press(initial(0), 'a', '실패', 20_000, 1).state;
+  const start = playing(0);
+  const failed = press(start, 'a', '실패', 20_000, start.version).state;
   const recovered = catchUp(failed, 179_999);
 
   assert.equal(recovered.phase, 'playing');
@@ -124,7 +155,7 @@ test('catch-up accounts for every overdue success and keeps failure totals', () 
 });
 
 test('catch-up aggregates successful rounds without exposing a round counter', () => {
-  const recovered = catchUp(initial(0), 200_000);
+  const recovered = catchUp(playing(0), 200_000);
 
   assert.equal(recovered.phase, 'playing');
   assert.equal(recovered.failedChallenges, 0);
@@ -133,7 +164,7 @@ test('catch-up aggregates successful rounds without exposing a round counter', (
 });
 
 test('catch-up is idempotent when the game is already current', () => {
-  const state = initial(100);
+  const state = playing(100);
   assert.equal(catchUp(state, state.phaseEndsAt - 1), state);
   assert.equal(catchUp(state, state.phaseEndsAt).phase, 'succeeded');
 });

@@ -11,12 +11,14 @@ const { logger } = require('firebase-functions');
 const {
   DURATIONS,
   initial,
+  startIfReady,
   press,
   catchUp,
   publicState,
   normalizeSuccessCountsByDate,
   migrateSuccessCountsByDate,
 } = require('./engine');
+const { pruneActiveSessions, joinParticipantRecord } = require('./participant-state');
 
 const firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG || '{}');
 const projectId = firebaseConfig.projectId || process.env.GCLOUD_PROJECT;
@@ -82,20 +84,33 @@ function normalizeState(current, now) {
     ? current.successCount : 0;
   const storedDateCounts = normalizeSuccessCountsByDate(current && current.successCountsByDate);
   const successCountsByDate = migrateSuccessCountsByDate(current && current.successCountsByDate, successCount, now);
+  const failedChallenges = Number.isSafeInteger(current && current.failedChallenges) && current.failedChallenges >= 0
+    ? current.failedChallenges : 0;
+  const version = Number(current && current.version);
+  const nextVersion = Number.isSafeInteger(version) && version > 0 ? version + 1 : 1;
 
-  if (!current || !['playing', 'failed', 'succeeded'].includes(current.phase)) {
-    const failedChallenges = Number.isSafeInteger(current && current.failedChallenges) && current.failedChallenges >= 0
-      ? current.failedChallenges : 0;
-    const nextVersion = current
-      ? (Number.isSafeInteger(current.version) ? current.version : 1) + 1
-      : 1;
-    return initial(now, failedChallenges, successCount, nextVersion, successCountsByDate);
+  if (!current) return initial(now);
+  if (!['waiting', 'playing', 'failed', 'succeeded'].includes(current.phase)) {
+    const reset = initial(now, failedChallenges, successCount, nextVersion, successCountsByDate);
+    reset.acceptedPresses = current.acceptedPresses && typeof current.acceptedPresses === 'object' ? current.acceptedPresses : {};
+    return reset;
   }
 
-  const phaseEndsAt = Number(current.phaseEndsAt);
-  const failedChallenges = Number(current.failedChallenges);
-  const version = Number(current.version);
-  const expectedFieldsExist = Number.isFinite(phaseEndsAt)
+  const isWaiting = current.phase === 'waiting';
+  const phaseEndsAt = isWaiting ? null : Number(current.phaseEndsAt);
+  const startedAt = Number(current.startedAt);
+
+  // Existing live games predate the six-player lobby. Preserve their totals, then wait for a fresh start.
+  if (!isWaiting && !Number.isFinite(startedAt)) {
+    const reset = initial(now, failedChallenges, successCount, nextVersion, successCountsByDate);
+    reset.acceptedPresses = current.acceptedPresses && typeof current.acceptedPresses === 'object' ? current.acceptedPresses : {};
+    return reset;
+  }
+
+  const validPhaseTiming = isWaiting
+    ? current.phaseEndsAt == null && current.startedAt == null
+    : Number.isFinite(phaseEndsAt) && Number.isFinite(startedAt);
+  const expectedFieldsExist = validPhaseTiming
     && Number.isSafeInteger(failedChallenges) && failedChallenges >= 0
     && Number.isSafeInteger(successCount) && successCount >= 0
     && storedDateCounts !== null
@@ -106,11 +121,12 @@ function normalizeState(current, now) {
     : current.phase === 'failed' ? DURATIONS.failed : DURATIONS.succeeded;
   return {
     phase: current.phase,
-    phaseEndsAt: Number.isFinite(phaseEndsAt) ? phaseEndsAt : now + duration,
-    failedChallenges: Number.isSafeInteger(failedChallenges) && failedChallenges >= 0 ? failedChallenges : 0,
+    phaseEndsAt: isWaiting ? null : Number.isFinite(phaseEndsAt) ? phaseEndsAt : now + duration,
+    startedAt: isWaiting ? null : startedAt,
+    failedChallenges,
     successCount,
     successCountsByDate,
-    lastPresser: current.lastPresser && typeof current.lastPresser.nickname === 'string'
+    lastPresser: !isWaiting && current.lastPresser && typeof current.lastPresser.nickname === 'string'
       ? { nickname: current.lastPresser.nickname } : null,
     version: Number.isSafeInteger(version) && version > 0 ? version + 1 : 1,
     acceptedPresses: current.acceptedPresses && typeof current.acceptedPresses === 'object' ? current.acceptedPresses : {},
@@ -135,7 +151,7 @@ async function publishState(state) {
 }
 
 async function scheduleTransition(state) {
-  if (!state || !Number.isSafeInteger(state.version) || !Number.isFinite(state.phaseEndsAt)) return;
+  if (!state || state.phase === 'waiting' || !Number.isSafeInteger(state.version) || !Number.isFinite(state.phaseEndsAt)) return;
   const taskId = crypto.createHash('sha256')
     .update('dontPressButton:' + state.version + ':' + state.phaseEndsAt)
     .digest('hex');
@@ -152,12 +168,19 @@ async function scheduleTransition(state) {
   }
 }
 
+async function countOnlineParticipants(now) {
+  const cutoff = now - PRESENCE_TTL_MS;
+  const snapshot = await participantRef.orderByChild('lastSeenAt').startAt(cutoff).get();
+  return Object.values(snapshot.val() || {}).filter((participant) => Number(participant.lastSeenAt) > cutoff).length;
+}
+
 async function ensureState() {
   const now = Date.now();
+  const participantCount = await countOnlineParticipants(now);
   const result = await internalStateRef.transaction((current) => {
-    if (!current) return initial(now);
-    const normalized = normalizeState(current, now);
-    return normalized === current ? undefined : normalized;
+    const normalized = current ? normalizeState(current, now) : initial(now);
+    const ready = startIfReady(normalized, participantCount, now);
+    return ready === current ? undefined : ready;
   });
   const state = normalizeState(result.snapshot.val(), now);
   await publishState(state);
@@ -183,11 +206,11 @@ async function releaseNickname(key, uid, publicId) {
   });
 }
 
-function participantRecord(nickname, key, sessionId, now) {
+function participantRecord(nickname, key, sessionId, now, publicId = crypto.randomBytes(12).toString('hex')) {
   return {
     nickname,
     nicknameKey: key,
-    publicId: crypto.randomBytes(12).toString('hex'),
+    publicId,
     joinedAt: now,
     lastSeenAt: now,
     sessions: { [sessionId]: { lastSeenAt: now } },
@@ -220,13 +243,15 @@ async function refreshSession(uid, sessionId) {
   const before = await ref.get();
   const current = before.val();
   if (!current || !current.sessions || !current.sessions[sessionId]) return null;
+  if (now - Number(current.sessions[sessionId].lastSeenAt) > PRESENCE_TTL_MS) return null;
 
   const result = await ref.transaction((latest) => {
     if (!latest) return null;
     if (!latest.sessions || !latest.sessions[sessionId]) return;
     const lastSeenAt = Number(latest.sessions[sessionId].lastSeenAt) || 0;
+    if (now - lastSeenAt > PRESENCE_TTL_MS) return;
     if (now - lastSeenAt < HEARTBEAT_MIN_INTERVAL_MS) return;
-    const sessions = { ...latest.sessions, [sessionId]: { lastSeenAt: now } };
+    const sessions = { ...pruneActiveSessions(latest.sessions, now, PRESENCE_TTL_MS), [sessionId]: { lastSeenAt: now } };
     return { ...latest, sessions, lastSeenAt: now };
   });
   const participant = result.snapshot.val();
@@ -291,28 +316,39 @@ exports.dpbJoin = onCall({ region: REGION }, async (request) => {
   const now = Date.now();
   const ref = participantRef.child(uid);
   const oldParticipant = (await ref.get()).val();
-  const proposed = participantRecord(proposal.nickname, proposal.key, sessionId, now);
-  const joined = await ref.transaction((current) => {
-    if (current && Number(current.lastSeenAt) > now - PRESENCE_TTL_MS) {
-      const sessions = { ...(current.sessions || {}), [sessionId]: { lastSeenAt: now } };
-      return { ...current, sessions, lastSeenAt: now };
-    }
-    return proposed;
-  });
+  const oldParticipantIsActive = oldParticipant && Number(oldParticipant.lastSeenAt) > now - PRESENCE_TTL_MS;
+  const proposed = participantRecord(
+    proposal.nickname,
+    proposal.key,
+    sessionId,
+    now,
+    oldParticipantIsActive ? oldParticipant.publicId : undefined,
+  );
+  const initialReservation = await reserveNickname(proposal.key, uid, proposed.publicId);
+  if (!initialReservation.committed) {
+    throw new HttpsError('already-exists', '이미 다른 참가자가 사용 중인 닉네임입니다.');
+  }
+
+  const joined = await ref.transaction((current) => joinParticipantRecord(
+    current,
+    proposed,
+    sessionId,
+    now,
+    PRESENCE_TTL_MS,
+  ));
   const participant = joined.snapshot.val();
   if (!participant) throw new HttpsError('internal', '참가 정보를 저장하지 못했습니다. 다시 입장해 주세요.');
 
   const reservation = await reserveNickname(participant.nicknameKey, uid, participant.publicId);
   if (!reservation.committed) {
-    await removeSession(uid, sessionId);
     throw new HttpsError('already-exists', '이미 다른 참가자가 사용 중인 닉네임입니다.');
   }
 
   if (oldParticipant && oldParticipant.nicknameKey && oldParticipant.nicknameKey !== participant.nicknameKey) {
     await releaseNickname(oldParticipant.nicknameKey, uid, oldParticipant.publicId);
-    if (oldParticipant.publicId !== participant.publicId) {
-      await publicParticipantsRef.child(oldParticipant.publicId).remove();
-    }
+  }
+  if (oldParticipant && oldParticipant.publicId && oldParticipant.publicId !== participant.publicId) {
+    await publicParticipantsRef.child(oldParticipant.publicId).remove();
   }
 
   await setPublicPresence(uid, participant);
@@ -364,8 +400,11 @@ exports.dpbPress = onCall({ region: REGION }, async (request) => {
     const existing = normalizeState(current, now);
     const next = catchUp(existing, now);
     const receipts = prunePressReceipts(existing.acceptedPresses, now);
+    const receiptCountChanged = Object.keys(receipts).length !== Object.keys(existing.acceptedPresses || {}).length;
     if (receipts[receiptKey]) {
-      return next.version !== existing.version ? { ...next, acceptedPresses: receipts } : coldCache ? next : undefined;
+      return next.version !== existing.version || existing !== current || receiptCountChanged
+        ? { ...next, acceptedPresses: receipts }
+        : coldCache ? next : undefined;
     }
 
     const result = press(next, uid, participant.nickname, now, expectedVersion);
@@ -373,7 +412,7 @@ exports.dpbPress = onCall({ region: REGION }, async (request) => {
       receipts[receiptKey] = now;
       return { ...result.state, acceptedPresses: receipts };
     }
-    if (next.version !== existing.version || Object.keys(receipts).length !== Object.keys(existing.acceptedPresses || {}).length) {
+    if (next.version !== existing.version || existing !== current || receiptCountChanged) {
       return { ...next, acceptedPresses: receipts };
     }
     return coldCache ? next : undefined;
@@ -419,13 +458,14 @@ exports.dpbTick = onSchedule({
   region: REGION,
 }, async () => {
   const now = Date.now();
+  await reapStaleParticipants(now);
+  const participantCount = await countOnlineParticipants(now);
   const transaction = await internalStateRef.transaction((current) => {
-    if (!current) return initial(now);
-    const state = normalizeState(current, now);
-    const next = catchUp(state, now);
-    return next === current ? undefined : next;
+    const state = current ? normalizeState(current, now) : initial(now);
+    const recovered = catchUp(state, now);
+    const ready = startIfReady(recovered, participantCount, now);
+    return ready === current ? undefined : ready;
   });
   const state = normalizeState(transaction.snapshot.val(), now);
   await Promise.all([publishState(state), scheduleTransition(state)]);
-  await reapStaleParticipants(now);
 });

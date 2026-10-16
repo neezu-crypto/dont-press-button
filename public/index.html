@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#10131d">
-  <meta name="description" content="전 세계 참가자가 함께 버티는 실시간 버튼 게임. 아무도 누르지 않으면 모두 성공합니다.">
+  <meta name="description" content="6명이 모이면 시작하는 실시간 버튼 게임. 아무도 누르지 않으면 모두 성공합니다.">
   <title>절대 누르지 마세요</title>
   <link rel="stylesheet" href="./style.css">
   <script type="module" src="./app.js"></script>
@@ -28,7 +28,7 @@
   <main class="layout">
     <section class="game-card" aria-labelledby="phaseTitle">
       <div class="eyebrow-row">
-        <span class="eyebrow">GLOBAL GAME</span>
+        <span class="eyebrow">GLOBAL GAME · 6명부터 시작</span>
       </div>
 
       <div class="headline-block">
@@ -80,21 +80,20 @@
       </div>
     </section>
 
-    <p class="rules-note">버튼을 누르지 않고 60초를 버티면 모두 성공합니다. 버튼을 누른 사람은 도전이 끝날 때 공개됩니다.</p>
+    <p class="rules-note">닉네임을 정하고 입장한 참가자가 6명 모이면 시작합니다. 버튼을 누르지 않고 60초를 버티면 모두 성공합니다.</p>
   </main>
 
   <dialog id="nicknameDialog" class="nickname-dialog" aria-labelledby="dialogTitle">
     <form id="nicknameForm" method="dialog" class="nickname-form">
-      <button id="closeDialogButton" class="dialog-close" type="button" aria-label="닫기">×</button>
       <span class="dialog-mark" aria-hidden="true">!</span>
       <p class="overline">JOIN THE GLOBAL GAME</p>
       <h2 id="dialogTitle">어떤 이름으로 버틸까요?</h2>
-      <p class="dialog-copy">현재 접속 중인 참가자와 겹치지 않는 닉네임을 사용해 주세요. 방송 중에도 함께할 수 있습니다.</p>
+      <p class="dialog-copy">페이지에 들어올 때마다 닉네임을 정하고 입장해 주세요. 현재 참가자와 겹치지 않는 2~12자 이름을 사용할 수 있습니다.</p>
       <label class="input-label" for="nicknameInput">닉네임</label>
-      <input id="nicknameInput" name="nickname" type="text" maxlength="24" autocomplete="nickname" placeholder="예: 버튼참기왕" required>
+      <input id="nicknameInput" name="nickname" type="text" maxlength="24" autocomplete="off" placeholder="예: 버튼참기왕" required>
       <p id="nicknameError" class="form-error" role="alert"></p>
       <button id="joinButton" class="join-button" type="submit">게임에 입장</button>
-      <p class="privacy-note">로그인 없이 익명으로 참가합니다. 브라우저에 닉네임이 저장됩니다.</p>
+      <p class="privacy-note">로그인 없이 익명으로 참가합니다. 닉네임은 브라우저에 저장되지 않습니다.</p>
     </form>
   </dialog>
 
