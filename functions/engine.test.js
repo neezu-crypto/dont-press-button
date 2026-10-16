@@ -2,7 +2,16 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { DURATIONS, initial, press, advance, catchUp, publicState } = require('./engine');
+const {
+  DURATIONS,
+  initial,
+  press,
+  advance,
+  catchUp,
+  publicState,
+  successDateKey,
+  migrateSuccessCountsByDate,
+} = require('./engine');
 
 test('the first approved press records one failed challenge and only the nickname', () => {
   const start = initial(1_000);
@@ -13,6 +22,7 @@ test('the first approved press records one failed challenge and only the nicknam
   assert.equal(result.state.phaseEndsAt, 12_000);
   assert.equal(result.state.failedChallenges, 1);
   assert.equal(result.state.successCount, 0);
+  assert.deepEqual(result.state.successCountsByDate, {});
   assert.deepEqual(result.state.lastPresser, { nickname: '시청자' });
   assert.equal('uid' in result.state.lastPresser, false);
   assert.equal(start.phase, 'playing', 'the pure transition must not mutate its input');
@@ -39,6 +49,34 @@ test('a press at or after the deadline is rejected and success is only aggregate
   assert.equal(success.phase, 'succeeded');
   assert.equal(success.failedChallenges, 0);
   assert.equal(success.successCount, 1);
+});
+
+test('success dates use the KST calendar day, including midnight', () => {
+  const successAt = Date.UTC(2026, 0, 1, 15);
+  const success = advance(initial(successAt - DURATIONS.playing), successAt);
+
+  assert.equal(successDateKey(successAt), '2026-01-02');
+  assert.deepEqual(success.successCountsByDate, { '2026-01-02': 1 });
+});
+
+test('catch-up aggregates each successful round under its KST date across midnight', () => {
+  const start = initial(Date.UTC(2026, 0, 1, 14));
+  const recovered = catchUp(start, Date.UTC(2026, 0, 2, 0, 4));
+
+  assert.equal(recovered.successCount, 403);
+  assert.deepEqual(recovered.successCountsByDate, {
+    '2026-01-01': 40,
+    '2026-01-02': 363,
+  });
+});
+
+test('legacy success totals are backfilled to the migration date', () => {
+  const migrationTime = Date.UTC(2026, 0, 1, 15);
+  assert.deepEqual(migrateSuccessCountsByDate(undefined, 5, migrationTime), { '2026-01-02': 5 });
+  assert.deepEqual(
+    migrateSuccessCountsByDate({ '2026-01-01': 3 }, 5, migrationTime),
+    { '2026-01-01': 3 },
+  );
 });
 
 test('failed challenges accumulate while the game continues', () => {
@@ -70,6 +108,7 @@ test('success counts remain internal state and do not reset failed challenge tot
   const sharedState = publicState(success);
   assert.equal(sharedState.failedChallenges, 7);
   assert.equal('successCount' in sharedState, false);
+  assert.equal('successCountsByDate' in sharedState, false);
   assert.equal('round' in sharedState, false);
 });
 

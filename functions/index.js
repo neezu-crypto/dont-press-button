@@ -8,7 +8,15 @@ const { HttpsError, onCall } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onTaskDispatched } = require('firebase-functions/v2/tasks');
 const { logger } = require('firebase-functions');
-const { DURATIONS, initial, press, catchUp, publicState } = require('./engine');
+const {
+  DURATIONS,
+  initial,
+  press,
+  catchUp,
+  publicState,
+  normalizeSuccessCountsByDate,
+  migrateSuccessCountsByDate,
+} = require('./engine');
 
 const firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG || '{}');
 const projectId = firebaseConfig.projectId || process.env.GCLOUD_PROJECT;
@@ -70,24 +78,27 @@ async function assertNotBanned(uid) {
 }
 
 function normalizeState(current, now) {
+  const successCount = Number.isSafeInteger(current && current.successCount) && current.successCount >= 0
+    ? current.successCount : 0;
+  const storedDateCounts = normalizeSuccessCountsByDate(current && current.successCountsByDate);
+  const successCountsByDate = migrateSuccessCountsByDate(current && current.successCountsByDate, successCount, now);
+
   if (!current || !['playing', 'failed', 'succeeded'].includes(current.phase)) {
     const failedChallenges = Number.isSafeInteger(current && current.failedChallenges) && current.failedChallenges >= 0
       ? current.failedChallenges : 0;
-    const successCount = Number.isSafeInteger(current && current.successCount) && current.successCount >= 0
-      ? current.successCount : 0;
     const nextVersion = current
       ? (Number.isSafeInteger(current.version) ? current.version : 1) + 1
       : 1;
-    return initial(now, failedChallenges, successCount, nextVersion);
+    return initial(now, failedChallenges, successCount, nextVersion, successCountsByDate);
   }
 
   const phaseEndsAt = Number(current.phaseEndsAt);
   const failedChallenges = Number(current.failedChallenges);
-  const successCount = Number(current.successCount);
   const version = Number(current.version);
   const expectedFieldsExist = Number.isFinite(phaseEndsAt)
     && Number.isSafeInteger(failedChallenges) && failedChallenges >= 0
     && Number.isSafeInteger(successCount) && successCount >= 0
+    && storedDateCounts !== null
     && Number.isSafeInteger(version) && version > 0;
   if (expectedFieldsExist) return current;
 
@@ -97,7 +108,8 @@ function normalizeState(current, now) {
     phase: current.phase,
     phaseEndsAt: Number.isFinite(phaseEndsAt) ? phaseEndsAt : now + duration,
     failedChallenges: Number.isSafeInteger(failedChallenges) && failedChallenges >= 0 ? failedChallenges : 0,
-    successCount: Number.isSafeInteger(successCount) && successCount >= 0 ? successCount : 0,
+    successCount,
+    successCountsByDate,
     lastPresser: current.lastPresser && typeof current.lastPresser.nickname === 'string'
       ? { nickname: current.lastPresser.nickname } : null,
     version: Number.isSafeInteger(version) && version > 0 ? version + 1 : 1,
