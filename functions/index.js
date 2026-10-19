@@ -108,7 +108,7 @@ function normalizeState(current, now) {
   }
 
   const validPhaseTiming = isWaiting
-    ? current.phaseEndsAt == null && current.startedAt == null
+    ? current.phaseEndsAt === null && current.startedAt === null
     : Number.isFinite(phaseEndsAt) && Number.isFinite(startedAt);
   const expectedFieldsExist = validPhaseTiming
     && Number.isSafeInteger(failedChallenges) && failedChallenges >= 0

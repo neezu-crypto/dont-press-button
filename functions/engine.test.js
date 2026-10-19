@@ -42,6 +42,17 @@ test('the game waits for six joined participants before starting', () => {
   assert.strictEqual(startIfReady(started, 0, 200), started, 'the running global game does not stop when players leave');
 });
 
+test('public waiting state normalizes missing legacy timing to null', () => {
+  const shared = publicState({
+    phase: 'waiting',
+    failedChallenges: 0,
+    lastPresser: null,
+    version: 1,
+  });
+
+  assert.equal(shared.phaseEndsAt, null);
+});
+
 test('the first approved press records one failed challenge and only the nickname', () => {
   const start = playing(1_000);
   const result = press(start, 'private-uid', '시청자', 2_000, start.version);

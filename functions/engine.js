@@ -184,7 +184,7 @@ function catchUp(state, now = Date.now(), maxTransitions = 10_000) {
 function publicState(state) {
   return {
     phase: state.phase,
-    phaseEndsAt: state.phaseEndsAt,
+    phaseEndsAt: state.phase === 'waiting' ? null : state.phaseEndsAt,
     failedChallenges: state.failedChallenges,
     lastPresser: state.lastPresser ? { nickname: state.lastPresser.nickname } : null,
     version: state.version,
